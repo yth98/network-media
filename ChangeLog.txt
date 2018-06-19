@@ -1,4 +1,7 @@
-2018/05/17 更新
+2018/06/19 更新：
+新增文字轉語音服務 mod/tts_itri.py 模組。
+
+2018/05/17 更新：
 1. 修改Client端的影像獨立顯示在OpenCV的imshow，解決了影像在Tkinter中卡頓、閃爍的瓶頸。
 2. 完成臉部辨識功能，需要執行b_install_dlib.bat、b_download_face-landmarks_90MB.bat。
 3. 移除i_background.gif、s_facedet.py。
