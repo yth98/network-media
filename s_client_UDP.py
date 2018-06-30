@@ -14,8 +14,10 @@ import socket
 import random
 import _thread
 import tkinter as tk
+from rtppacket import rtp_packet
 from enum import Enum
 from PIL import Image, ImageTk
+#from rtp_packethead import rtpPacket
 #from multiprocessing import Process
 
 class C_(Enum):
@@ -38,8 +40,9 @@ HOST = re.findall('://([0-9A-Za-z.]+)/', Request_URI)[0]
 addr=(HOST,554)
 
 def setup():
-    global state, CSeq, client_p, server_p, session, t
-    # test available methods
+    global state, CSeq, client_p, server_p, session, t, frame_buffer 
+    frame_buffer = []
+        # test available methods
     optn = ("OPTIONS "+Request_URI+" RTSP/1.0\r\nCseq: "+str(CSeq)+"\r\n\r\n").encode()
     t.sendto(optn,addr)
     try: rstr = t.recv(4096)
@@ -139,18 +142,19 @@ def set_param(event):
     print(rstr.decode())
     CSeq += 1
     return True
-    
+
 
 # button events and state maintain
 
 def c_setup():
-    global state
+    global state,current_point
+    current_point = 0
     print("Setup.")
     if(not setup()): return False
     if(state!=C_.PLAYING): state=C_.READY
 
 def c_play():
-    global state
+    global state, current_point
     if(state==C_.INIT):
         print("No session!")
         return False
@@ -174,16 +178,28 @@ def c_down():
     teardown()
     state=C_.INIT
 
+
+
 def rtp_rec():
-    global state, client_p, w, e, buffer_img
+    global state, client_p, w, e, buffer_img,frame_buffer
     r = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     r.bind(("", client_p))
+    temp_sep = 0
     r.settimeout(5)
     while(True):
-        if(state!=C_.PLAYING): # no segment to recv
-            continue
         try:
-            buffer_img, adr = r.recvfrom(65536) # limitation is 64KB
+            packet, adr = r.recvfrom(65536) # limitation is 64KB
+            rtppacket = rtp_packet()
+            rtppacket.decode(packet)
+            buffer_img = rtppacket.getpayload()
+           # print("seq",rtppacket.seqnum())
+            if rtppacket.seqnum() < temp_sep:
+                continue
+            elif rtppacket.seqnum() >= temp_sep:
+               # print("buffer")
+                frame_buffer.append(buffer_img)
+                temp_sep = rtppacket.seqnum()            
+
             if(adr[1]!=server_p): continue # ignore messages from wrong port
             #print("Recv",len(buffer_img),"bytes")
         except socket.timeout:
@@ -191,18 +207,29 @@ def rtp_rec():
             state=C_.READY
 
 def vid_display():
-    global state, buffer_img
+    global state, buffer_img,current_point, frame_buffer
+    time.sleep(1)
     while(state==C_.PLAYING):
         try:
             global disp
-            disp = cv2.resize(cv2.imdecode(numpy.fromstring(buffer_img, numpy.uint8),cv2.IMREAD_COLOR), (wid,hei))
+            print("frame_buffer: ",len(frame_buffer))
+            print("current: ",current_point)
+            disp = cv2.resize(cv2.imdecode(numpy.fromstring(frame_buffer[current_point], numpy.uint8),cv2.IMREAD_COLOR), (wid,hei))
+           # print(current_point)
+            current_point += 1
             cv2.imshow("RTSP Client Player", disp)
         except cv2.error:
             print("Bad frame.")
             continue
+        except IndexError:
+            continue
         cv2.waitKey(50)
     if(state==C_.INIT): cv2.imshow("RTSP Client Player", bk)
     else: cv2.imshow("RTSP Client Player", disp) # state==C_.READY
+
+
+
+
 
 '''parallel = Process(target=rtp_rec)
 parallel.start()
@@ -274,13 +301,13 @@ public class Client{
   DatagramPacket rcvdp; //UDP packet received from the server
   DatagramSocket RTPsocket; //socket to be used to send and receive UDP packets
   static int RTP_RCV_PORT = 25000; //port where the client will receive the RTP packets
-  
+
   Timer timer; //timer used to receive data from the UDP socket
-  byte[] buf; //buffer used to store data received from the server 
- 
+  byte[] buf; //buffer used to store data received from the server
+
   //RTSP variables
   //----------------
-  //rtsp states 
+  //rtsp states
   final static int INIT = 0;
   final static int READY = 1;
   final static int PLAYING = 2;
@@ -298,7 +325,7 @@ public class Client{
   //Video constants:
   //------------------
   static int MJPEG_TYPE = 26; //RTP payload type for MJPEG video
- 
+
   //--------------------------
   //Constructor
   //--------------------------
@@ -306,7 +333,7 @@ public class Client{
 
     //build GUI
     //--------------------------
- 
+
     //Frame
     f.addWindowListener(new WindowAdapter() {
        public void windowClosing(WindowEvent e) {
@@ -327,7 +354,7 @@ public class Client{
 
     //Image display label
     iconLabel.setIcon(null);
-    
+
     //frame layout
     mainPanel.setLayout(null);
     mainPanel.add(iconLabel);
@@ -346,7 +373,7 @@ public class Client{
     timer.setCoalesce(true);
 
     //allocate enough memory for the buffer used to receive data from the server
-    buf = new byte[15000];    
+    buf = new byte[15000];
   }
 
   //------------------------------------
@@ -356,7 +383,7 @@ public class Client{
   {
     //Create a Client object
     Client theClient = new Client();
-    
+
     //get server RTSP port and IP address from the command line
     //------------------
     int RTSP_server_port = Integer.parseInt(argv[1]);
@@ -392,9 +419,9 @@ public class Client{
   class setupButtonListener implements ActionListener{
     public void actionPerformed(ActionEvent e){
 
-      //System.out.println("Setup Button pressed !");      
+      //System.out.println("Setup Button pressed !");
 
-      if (state == INIT) 
+      if (state == INIT)
 	{
 	  //Init non-blocking RTPsocket that will be used to receive data
 	  try{
@@ -413,31 +440,31 @@ public class Client{
 
 	  //init RTSP sequence number
 	  RTSPSeqNb = 1;
-	 
+
 	  //Send SETUP message to the server
 	  send_RTSP_request("SETUP");
 
-	  //Wait for the response 
+	  //Wait for the response
 	  if (parse_server_response() != 200)
 	    System.out.println("Invalid Server Response");
-	  else 
+	  else
 	    {
-	      //change RTSP state and print new state 
+	      //change RTSP state and print new state
 	      //state = ....
 	      //System.out.println("New RTSP state: ....");
 	    }
 	}//else if state != INIT then do nothing
     }
   }
-  
+
   //Handler for Play button
   //-----------------------
   class playButtonListener implements ActionListener {
     public void actionPerformed(ActionEvent e){
 
-      //System.out.println("Play Button pressed !"); 
+      //System.out.println("Play Button pressed !");
 
-      if (state == READY) 
+      if (state == READY)
 	{
 	  //increase RTSP sequence number
 	  //.....
@@ -446,10 +473,10 @@ public class Client{
 	  //Send PLAY message to the server
 	  send_RTSP_request("PLAY");
 
-	  //Wait for the response 
+	  //Wait for the response
 	  if (parse_server_response() != 200)
 		  System.out.println("Invalid Server Response");
-	  else 
+	  else
 	    {
 	      //change RTSP state and print out new state
 	      //.....
@@ -468,25 +495,25 @@ public class Client{
   class pauseButtonListener implements ActionListener {
     public void actionPerformed(ActionEvent e){
 
-      //System.out.println("Pause Button pressed !");   
+      //System.out.println("Pause Button pressed !");
 
-      if (state == PLAYING) 
+      if (state == PLAYING)
 	{
 	  //increase RTSP sequence number
 	  //........
 
 	  //Send PAUSE message to the server
 	  send_RTSP_request("PAUSE");
-	
-	  //Wait for the response 
+
+	  //Wait for the response
 	 if (parse_server_response() != 200)
 		  System.out.println("Invalid Server Response");
-	  else 
+	  else
 	    {
 	      //change RTSP state and print out new state
 	      //........
 	      //System.out.println("New RTSP state: ...");
-	      
+
 	      //stop the timer
 	      timer.stop();
 	    }
@@ -500,20 +527,20 @@ public class Client{
   class tearButtonListener implements ActionListener {
     public void actionPerformed(ActionEvent e){
 
-      //System.out.println("Teardown Button pressed !");  
+      //System.out.println("Teardown Button pressed !");
 
       //increase RTSP sequence number
       // ..........
-      
+
 
       //Send TEARDOWN message to the server
       send_RTSP_request("TEARDOWN");
 
-      //Wait for the response 
+      //Wait for the response
       if (parse_server_response() != 200)
 	System.out.println("Invalid Server Response");
-      else 
-	{     
+      else
+	{
 	  //change RTSP state and print out new state
 	  //........
 	  //System.out.println("New RTSP state: ...");
@@ -531,23 +558,23 @@ public class Client{
   //------------------------------------
   //Handler for timer
   //------------------------------------
-  
+
   class timerListener implements ActionListener {
     public void actionPerformed(ActionEvent e) {
-      
+
       //Construct a DatagramPacket to receive data from the UDP socket
       rcvdp = new DatagramPacket(buf, buf.length);
 
       try{
 	//receive the DP from the socket:
 	RTPsocket.receive(rcvdp);
-	  
+
 	//create an RTPpacket object from the DP
 	RTPpacket rtp_packet = new RTPpacket(rcvdp.getData(), rcvdp.getLength());
 
-	//print important header fields of the RTP packet received: 
+	//print important header fields of the RTP packet received:
 	System.out.println("Got RTP packet with SeqNum # "+rtp_packet.getsequencenumber()+" TimeStamp "+rtp_packet.gettimestamp()+" ms, of type "+rtp_packet.getpayloadtype());
-	
+
 	//print header bitstream:
 	rtp_packet.printheader();
 
@@ -559,7 +586,7 @@ public class Client{
 	//get an Image object from the payload bitstream
 	Toolkit toolkit = Toolkit.getDefaultToolkit();
 	Image image = toolkit.createImage(payload, 0, payload_length);
-	
+
 	//display the image as an ImageIcon object
 	icon = new ImageIcon(image);
 	iconLabel.setIcon(icon);
@@ -576,7 +603,7 @@ public class Client{
   //------------------------------------
   //Parse Server Response
   //------------------------------------
-  private int parse_server_response() 
+  private int parse_server_response()
   {
     int reply_code = 0;
 
@@ -585,20 +612,20 @@ public class Client{
       String StatusLine = RTSPBufferedReader.readLine();
       //System.out.println("RTSP Client - Received from Server:");
       System.out.println(StatusLine);
-    
+
       StringTokenizer tokens = new StringTokenizer(StatusLine);
       tokens.nextToken(); //skip over the RTSP version
       reply_code = Integer.parseInt(tokens.nextToken());
-      
+
       //if reply code is OK get and print the 2 other lines
       if (reply_code == 200)
 	{
 	  String SeqNumLine = RTSPBufferedReader.readLine();
 	  System.out.println(SeqNumLine);
-	  
+
 	  String SessionLine = RTSPBufferedReader.readLine();
 	  System.out.println(SessionLine);
-	
+
 	  //if state == INIT gets the Session Id from the SessionLine
 	  tokens = new StringTokenizer(SessionLine);
 	  tokens.nextToken(); //skip over the Session:
@@ -610,7 +637,7 @@ public class Client{
 	System.out.println("Exception caught: "+ex);
 	System.exit(0);
       }
-    
+
     return(reply_code);
   }
 
@@ -621,7 +648,7 @@ public class Client{
   //.............
   //TO COMPLETE
   //.............
-  
+
   private void send_RTSP_request(String request_type)
   {
     try{
@@ -630,7 +657,7 @@ public class Client{
       //write the request line:
       //RTSPBufferedWriter.write(...);
 
-      //write the CSeq line: 
+      //write the CSeq line:
       //......
 
       //check if request_type is equal to "SETUP" and in this case write the Transport: line advertising to the server the port used to receive the RTP packets RTP_RCV_PORT
