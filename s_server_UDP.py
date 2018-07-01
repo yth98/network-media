@@ -15,6 +15,9 @@ import _thread
 from mod import face
 from enum import Enum
 from PIL import Image
+from time import ctime
+from rtppacket import rtp_packet
+#from rtp_packethead import rtp_packethead    
 
 class C_(Enum):
     INIT = 0
@@ -64,6 +67,23 @@ def init_vid(src):
     t_start = time.clock()
     t_pause = 0
 
+
+
+def makertp(payload, framenumber):
+    version = 2 
+    padding = 0
+    extionsion = 0 
+    cc = 0
+    marker = 0
+    pt = 26 
+    seqnum = framenumber
+    ssrc = 0
+    rtppacket = rtp_packet()
+    #print(payload)
+    rtppacket.encode(version, padding, extionsion, cc, seqnum, marker, pt, ssrc, payload)
+
+    return rtppacket.getPacket()
+
 img_dummy = get_file("i_loading.jpg")
 
 def img_proc(image):
@@ -74,11 +94,12 @@ def rtp_send():
     global state, t, cap, frm, t_pause, address, c_port
     while(state == C_.PLAYING):
         rtp_pkg = img_dummy
+        packet_index = 0
         if(cap_sig): # cap is unavailable
             return
         elif(cap.isOpened()):
             cap.set(cv2.CAP_PROP_POS_FRAMES,int(frm*(time.clock()-t_start)))
-            #print("FRM",int(frm*(time.clock()-t_start)))
+
             retval,im = cv2.VideoCapture.read(cap)
             if(not retval):
                 print("Video was end, changing or unavailable.")
@@ -86,15 +107,22 @@ def rtp_send():
                 state = C_.READY
                 return
             buffer = io.BytesIO()
+#         
+            packet_index += 1
+
             im = img_proc(im)
             Image.fromarray(cv2.cvtColor(im,cv2.COLOR_BGR2RGB)).save(buffer, format='JPEG')
             rtp_pkg = buffer.getvalue()
+            #print(rtp_pkg)
         else:
             time.sleep(0.5) # show img_dummy
-        #print("Send",len(rtp_pkg),"bytes")
+       # print("Send",len(rtp_pkg),"bytes")
         if(len(rtp_pkg) >= 65536): print("The segment was too large!")
         else:
-            try: t.sendto(rtp_pkg, (address[0],c_port))
+            try: 
+                print("Send", len(makertp(rtp_pkg, packet_index)), "bytes")
+                t.sendto(makertp(rtp_pkg,packet_index), (address[0],c_port))
+                
             except NameError: pass
         time.sleep(0.002)
 
@@ -143,11 +171,12 @@ while(True):
         state = C_.PLAYING
         kill_rtp()
         _thread.start_new_thread(rtp_send,())
+    
     elif(method=='PAUSE'): #recommended
         c_sess = re.findall('\r\nSession: ([^\r\n]+)', message.decode())[0]
         response += ("\r\n")
         t_pause = time.clock() - t_start # INCORRECT & need to modify! t_pause should be recorded by client.
-        state = C_.READY
+        state = C_.PLAYING
     elif(method=='SET_PARAMETER'): #optional
         try:
             ctrl = re.findall('\r\n\r\nctrl: ([^\r\n]+)', message.decode())[0]
@@ -179,7 +208,10 @@ while(True):
             response += ("Content-Length: "+str(len(content.encode()))+"\r\n\r\n"+content)
     else: response = "RTSP/1.0 405 Method Not Allowed\r\n\r\n"
     if(method!='SET_PARAMETER'): s.sendto(response.encode(), address)
-    
+
+
+
+
 '''
 
 import java.io.*;
@@ -213,7 +245,7 @@ public class Server extends JFrame implements ActionListener {
   static int VIDEO_LENGTH = 500; //length of the video in frames
 
   Timer timer; //timer used to send the images at the video frame rate
-  byte[] buf; //buffer used to store the images to send to the client 
+  byte[] buf; //buffer used to store the images to send to the client
 
   //RTSP variables
   //----------------
@@ -235,7 +267,7 @@ public class Server extends JFrame implements ActionListener {
   static String VideoFileName; //video file requested from the client
   static int RTSP_ID = 123456; //ID of the RTSP session
   int RTSPSeqNb = 0; //Sequence number of RTSP messages within the session
-  
+
   final static String CRLF = "\r\n";
 
   //--------------------------------
@@ -252,7 +284,7 @@ public class Server extends JFrame implements ActionListener {
     timer.setCoalesce(true);
 
     //allocate memory for the sending buffer
-    buf = new byte[15000]; 
+    buf = new byte[15000];
 
     //Handler to close the main window
     addWindowListener(new WindowAdapter() {
@@ -266,7 +298,7 @@ public class Server extends JFrame implements ActionListener {
     label = new JLabel("Send frame #        ", JLabel.CENTER);
     getContentPane().add(label, BorderLayout.CENTER);
   }
-          
+
   //------------------------------------
   //main
   //------------------------------------
@@ -281,7 +313,7 @@ public class Server extends JFrame implements ActionListener {
 
     //get RTSP socket port from the command line
     int RTSPport = Integer.parseInt(argv[0]);
-   
+
     //Initiate TCP connection with the client for the RTSP session
     ServerSocket listenSocket = new ServerSocket(RTSPport);
     theServer.RTSPsocket = listenSocket.accept();
@@ -303,7 +335,7 @@ public class Server extends JFrame implements ActionListener {
     while(!done)
       {
 	request_type = theServer.parse_RTSP_request(); //blocking
-	
+
 	if (request_type == SETUP)
 	  {
 	    done = true;
@@ -311,10 +343,10 @@ public class Server extends JFrame implements ActionListener {
 	    //update RTSP state
 	    state = READY;
 	    System.out.println("New RTSP state: READY");
-   
+
 	    //Send response
 	    theServer.send_RTSP_response();
-   
+
 	    //init the VideoStream object:
 	    theServer.video = new VideoStream(VideoFileName);
 
@@ -328,7 +360,7 @@ public class Server extends JFrame implements ActionListener {
       {
 	//parse the request
 	request_type = theServer.parse_RTSP_request(); //blocking
-	    
+
 	if ((request_type == PLAY) && (state == READY))
 	  {
 	    //send back response
@@ -375,14 +407,14 @@ public class Server extends JFrame implements ActionListener {
       {
 	//update current imagenb
 	imagenb++;
-       
+
 	try {
 	  //get next frame to send from the video, as well as its size
 	  int image_length = video.getnextframe(buf);
 
 	  //Builds an RTPpacket object containing the frame
 	  RTPpacket rtp_packet = new RTPpacket(MJPEG_TYPE, imagenb, imagenb*FRAME_PERIOD, buf, image_length);
-	  
+
 	  //get to total length of the full rtp packet to send
 	  int packet_length = rtp_packet.getlength();
 
@@ -390,7 +422,7 @@ public class Server extends JFrame implements ActionListener {
 	  byte[] packet_bits = new byte[packet_length];
 	  rtp_packet.getpacket(packet_bits);
 
-	  //send the packet as a DatagramPacket over the UDP socket 
+	  //send the packet as a DatagramPacket over the UDP socket
 	  senddp = new DatagramPacket(packet_bits, packet_length, ClientIPAddr, RTP_dest_port);
 	  RTPsocket.send(senddp);
 
@@ -451,7 +483,7 @@ public class Server extends JFrame implements ActionListener {
       tokens = new StringTokenizer(SeqNumLine);
       tokens.nextToken();
       RTSPSeqNb = Integer.parseInt(tokens.nextToken());
-	
+
       //get LastLine
       String LastLine = RTSPBufferedReader.readLine();
       System.out.println(LastLine);
@@ -493,5 +525,3 @@ public class Server extends JFrame implements ActionListener {
       }
   }
 }'''
-
-
