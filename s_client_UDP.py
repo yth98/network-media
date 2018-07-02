@@ -132,12 +132,18 @@ def teardown():
     return True
 
 def set_param(event):
-    global state, CSeq, t
+    global state, CSeq, t,frame_buffer,current_point
     if(not len(e.get())): return False
     payload = "ctrl: "+e.get()
     setp = ("SET_PARAMETER "+Request_URI+" RTSP/1.0\r\nCseq: "+str(CSeq)+"\r\nContent-type: text/parameters\r\nContent-length: "+str(len(payload.encode()))+"\r\n\r\n"+payload).encode()
     t.sendto(setp,addr)
     rstr = t.recv(4096)
+    try:
+        if len(frame_buffer) != 0:
+            frame_buffer.clear()
+            current_point = 0
+    except NameError:
+        pass
     print(rstr.decode())
     CSeq += 1
     return True
@@ -177,6 +183,30 @@ def c_down():
     teardown()
     state=C_.INIT
 
+def c_High():
+    global t, CSeq
+    print("send high")
+    tdwn = ("high "+Request_URI+" RTSP/1.0\r\nCseq: "+str(CSeq)+"\r\nSession: "+session+"\r\n\r\n").encode()
+    t.sendto(tdwn, addr)
+    return True
+
+def c_medium():
+    global t,CSeq
+    print("send med")
+    tdwn = ("medium "+Request_URI+" RTSP/1.0\r\nCseq: "+str(CSeq)+"\r\nSession: "+session+"\r\n\r\n").encode()
+    t.sendto(tdwn, addr)
+    return True
+
+
+def c_low():
+    global t,CSeq
+    print("send low")
+    tdwn =  ("low "+Request_URI+" RTSP/1.0\r\nCseq: "+str(CSeq)+"\r\nSession: "+session+"\r\n\r\n").encode()
+    t.sendto(tdwn, addr)
+    return True
+
+
+
 
 
 def rtp_rec():
@@ -211,8 +241,8 @@ def vid_display():
     while(state==C_.PLAYING):
         try:
             global disp
-            print("frame_buffer: ",len(frame_buffer))
-            print("current: ",current_point)
+           # print("frame_buffer: ",len(frame_buffer))
+            #print("current: ",current_point)
             disp = ImageTk.PhotoImage(Image.open(io.BytesIO(frame_buffer[current_point])).resize((wid,hei)))
            # print(current_point)
             current_point += 1
@@ -249,9 +279,14 @@ for i in range(4):
     cmd={0:c_setup,1:c_play,2:c_pause,3:c_down}.get(i)
     b.append(tk.Button(master,text=tx,command=cmd,width=10,height=2))
     b[i].grid(row=1, column=i, sticky=tk.W+tk.E)
-
+quality = []
+for i in range(3):
+    qu_tx={0:"High",1:"Medium",2:"Low"}.get(i)
+    cmd={0:c_High,1:c_medium,2:c_low}.get(i)
+    quality.append(tk.Button(master,text=qu_tx,command=cmd,width=10,height=1))
+    quality[i].grid(row=2,column=i, sticky=tk.E+tk.W)
 e = tk.Entry(master)
-e.grid(row=2, column=0, columnspan=4, sticky=tk.W+tk.E)
+e.grid(row=3, column=0, columnspan=4, sticky=tk.W+tk.E)
 e.bind("<Return>", set_param)
 
 _thread.start_new_thread(rtp_rec,())

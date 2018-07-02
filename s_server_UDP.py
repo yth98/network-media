@@ -14,7 +14,9 @@ import random
 import _thread
 from mod import face
 from enum import Enum
+from PIL import ImageOps
 from PIL import Image
+from PIL import ImageStat
 from time import ctime
 from rtppacket import rtp_packet
 #from rtp_packethead import rtp_packethead    
@@ -24,7 +26,13 @@ class C_(Enum):
     READY = 1
     PLAYING = 2
 
+class Q_(Enum):
+    high = 3
+    medium = 4
+    low = 5
+
 state = C_.INIT
+quailty_state = Q_.high
 CSeq = 0
 
 HOST, PORT = "", 554
@@ -89,8 +97,9 @@ def img_proc(image):
     return image
 
 def rtp_send():
-    global state, t, cap, frm, t_pause, address, c_port
+    global state, t, cap, frm, t_pause, address, c_port, quailty_state
     # if(cap.isOpened()): cap.set(cv2.CAP_PROP_POS_FRAMES,int(frm*t_pause))
+    
     while(state == C_.PLAYING):
         rtp_pkg = img_dummy
         packet_index = 0
@@ -103,17 +112,28 @@ def rtp_send():
                 cap.release()
                 continue
             buffer = io.BytesIO()
-            
+            print(quailty_state)
             packet_index += 1
-            
+            if quailty_state == Q_.high:
+                #print(quailty_state)
+                Image.fromarray(cv2.cvtColor(im,cv2.COLOR_BGR2RGB)).save(buffer, format='JPEG', dpi=(1920,1080), quality=80)
+                print("high",len(buffer.getvalue()))
+            elif quailty_state == Q_.medium:
+        #        print(quailty_state)
+                Image.fromarray(cv2.cvtColor(im,cv2.COLOR_BGR2RGB)).save(buffer, format='JPEG', dpi=(1280,720),quality=50)
+                print("medium", len(buffer.getvalue()))
+            elif quailty_state == Q_.low:
+                Image.fromarray(cv2.cvtColor(im,cv2.COLOR_BGR2RGB)).save(buffer, format='JPEG',dpi=(640,480),quality=30)
+                print("low", len(buffer.getvalue()))
+
             im = img_proc(im)
-            Image.fromarray(cv2.cvtColor(im,cv2.COLOR_BGR2RGB)).save(buffer, format='JPEG')
+            
             rtp_pkg = buffer.getvalue()
             #print(rtp_pkg)
         else:
             time.sleep(0.5) # show img_dummy
             packet_index += 1
-       # print("Send",len(rtp_pkg),"bytes")
+        #print("Send",len(rtp_pkg),"bytes")
         if(len(rtp_pkg) >= 65536): print("The segment was too large!")
         else:
             try:
@@ -203,5 +223,18 @@ while(True):
             response += "Content-type: text/parameters\r\n"
             content = re.findall('\r\n([^:]+)', message.decode())[0]
             response += ("Content-Length: "+str(len(content.encode()))+"\r\n\r\n"+content)
+    elif(method=='high'):
+        print("high")
+        quailty_state = Q_.high
+
+    elif(method=='medium'):
+        print("medium")
+        quailty_state = Q_.medium
+
+    elif(method=='low'):
+        print("low")
+        quailty_state = Q_.low
+
+       
     else: response = "RTSP/1.0 405 Method Not Allowed\r\n\r\n"
     if(method!='SET_PARAMETER'): s.sendto(response.encode(), address)
