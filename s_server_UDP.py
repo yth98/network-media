@@ -21,21 +21,26 @@ from time import ctime
 from rtppacket import rtp_packet
 #from rtp_packethead import rtp_packethead    
 
+
+#set the struct mean the video state
 class C_(Enum):
     INIT = 0
     READY = 1
     PLAYING = 2
 
+#set the struct mean the video quality
 class Q_(Enum):
     high = 3
     medium = 4
     low = 5
 
+#init the video state and quality
 state = C_.INIT
 quailty_state = Q_.high
 CSeq = 0
 
-HOST, PORT = "", 554
+#set the UDP 
+HOST, PORT = "", 80
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 s.bind((HOST,PORT))
 
@@ -45,8 +50,11 @@ t.settimeout(0)
 
 session = ''
 
+#initial the parmeter 
 cap_sig = False
 face_sig = False
+
+#default the cv2 capture the video
 cap = cv2.VideoCapture()
 frm = 0
 t_pause = 0
@@ -85,7 +93,9 @@ def makertp(payload, framenumber):
     seqnum = framenumber
     ssrc = 0
     rtppacket = rtp_packet()
+    #use the rtppacket class
     #print(payload)
+    #encode all the thing use the rtppacket class function 
     rtppacket.encode(version, padding, extionsion, cc, seqnum, marker, pt, ssrc, payload)
     
     return rtppacket.getPacket()
@@ -97,7 +107,7 @@ def img_proc(image):
     return image
 
 def rtp_send():
-    global state, t, cap, frm, t_pause, address, c_port, quailty_state
+    global state, t, cap, frm, t_pause, address, c_port, quailty_state,frm
     # if(cap.isOpened()): cap.set(cv2.CAP_PROP_POS_FRAMES,int(frm*t_pause))
     
     while(state == C_.PLAYING):
@@ -112,21 +122,27 @@ def rtp_send():
                 cap.release()
                 continue
             buffer = io.BytesIO()
-            print(quailty_state)
+            #print(quailty_state)
+            if frm != 0:
+               # print(1/frm)
+                time.sleep((1/frm) * 0.8)
             packet_index += 1
+            im = img_proc(im)
             if quailty_state == Q_.high:
                 #print(quailty_state)
+                #set the video quality by the dpi and the quality 
+                #the quality is the jepg quality 
                 Image.fromarray(cv2.cvtColor(im,cv2.COLOR_BGR2RGB)).save(buffer, format='JPEG', dpi=(1920,1080), quality=80)
-                print("high",len(buffer.getvalue()))
+               # print("high",len(buffer.getvalue()))
             elif quailty_state == Q_.medium:
         #        print(quailty_state)
                 Image.fromarray(cv2.cvtColor(im,cv2.COLOR_BGR2RGB)).save(buffer, format='JPEG', dpi=(1280,720),quality=50)
-                print("medium", len(buffer.getvalue()))
+                #print("medium", len(buffer.getvalue()))
             elif quailty_state == Q_.low:
                 Image.fromarray(cv2.cvtColor(im,cv2.COLOR_BGR2RGB)).save(buffer, format='JPEG',dpi=(640,480),quality=30)
-                print("low", len(buffer.getvalue()))
+                #print("low", len(buffer.getvalue()))
 
-            im = img_proc(im)
+            
             
             rtp_pkg = buffer.getvalue()
             #print(rtp_pkg)
@@ -141,7 +157,8 @@ def rtp_send():
                 t.sendto(makertp(rtp_pkg,packet_index), (address[0],c_port))
                 
             except NameError: pass
-
+            except BlockingIOError:pass
+            
 init_vid("") # no video was opened
 
 print("Server is ready.")
