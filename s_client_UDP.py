@@ -36,7 +36,7 @@ t.settimeout(5)
 Request_URI = "rtsp://127.0.0.1/media/testing.mp4"
 
 HOST = re.findall('://([0-9A-Za-z.]+)/', Request_URI)[0]
-addr=(HOST,554)
+addr=(HOST,80)
 
 def setup():
     global state, CSeq, client_p, server_p, session, t, frame_buffer 
@@ -219,8 +219,7 @@ def rtp_rec():
         try:
             packet, adr = r.recvfrom(65536) # limitation is 64KB
             if(adr[1]!=server_p): continue # ignore messages from wrong port
-           # print("Recv",len(buffer_img),"bytes")
-
+            
             rtppacket = rtp_packet()
             rtppacket.decode(packet)
             buffer_img = rtppacket.getpayload()
@@ -231,18 +230,20 @@ def rtp_rec():
                # print("buffer")
                 frame_buffer.append(buffer_img)
                 temp_sep = rtppacket.seqnum()
+                
+           # print("Recv",len(buffer_img),"bytes")
         except socket.timeout:
             print("RTP Timeout.")
             state=C_.READY
 
 def vid_display():
     global state, w, current_point, frame_buffer
-    time.sleep(1)
+    time.sleep(3)
     while(state==C_.PLAYING):
         try:
             global disp
            # print("frame_buffer: ",len(frame_buffer))
-            #print("current: ",current_point)
+           # print("current: ",current_point)
             disp = ImageTk.PhotoImage(Image.open(io.BytesIO(frame_buffer[current_point])).resize((wid,hei)))
            # print(current_point)
             current_point += 1
